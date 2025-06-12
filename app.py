@@ -89,3 +89,11 @@ if selected_dealers:
             location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
             popup=f"Dealer: {dealer_selected['Kode Dealer']}",
             icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(m)
+
+    folium.LayerControl().add_to(m)
+
+    st_folium(m, width=800, height=600)
+
+else:
+    st.write("Silakan pilih minimal satu dealer di sidebar.")
