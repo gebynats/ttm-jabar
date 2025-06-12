@@ -26,6 +26,8 @@ csv_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8
 jabar_map = load_geojson(geojson_url)
 dealer_df = load_csv(csv_url)
 
+dealer_df.columns = dealer_df.columns.str.strip().str.upper()
+
 # Pastikan kolom Latitude dan Longitude numeric
 dealer_df['Latitude'] = pd.to_numeric(dealer_df['Latitude'], errors='coerce')
 dealer_df['Longitude'] = pd.to_numeric(dealer_df['Longitude'], errors='coerce')
