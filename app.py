@@ -20,7 +20,8 @@ def load_excel(url):
 
 # --- LINK DATA ---
 geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
-excel_url = 'https://docs.google.com/spreadsheets/d/19jQ2KXMKVUbz2hSrwzd0f-7PUeE3T7Yd/edit?usp=sharing&ouid=103666483052468840911&rtpof=true&sd=true'
+excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=csv'
+
 
 # --- LOAD DATA ---
 jabar_map = load_geojson(geojson_url)
