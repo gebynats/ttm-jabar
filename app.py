@@ -15,42 +15,50 @@ def load_geojson(url):
     return gdf
 
 @st.cache_data
-def load_excel(url):
-    return pd.read_excel(url)
+def load_csv(url):
+    return pd.read_csv(url)
 
-# --- LINK DATA ---
+# Google Drive direct download links
 geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
-excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=csv'
+csv_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=csv'
 
-
-# --- LOAD DATA ---
+# Load data
 jabar_map = load_geojson(geojson_url)
-dealer_df = load_excel(excel_url)
+dealer_df = load_csv(csv_url)
 
-# --- CONVERT GEODATAFRAME ---
+# Pastikan kolom Latitude dan Longitude numeric
+dealer_df['Latitude'] = pd.to_numeric(dealer_df['Latitude'], errors='coerce')
+dealer_df['Longitude'] = pd.to_numeric(dealer_df['Longitude'], errors='coerce')
+dealer_df = dealer_df.dropna(subset=['Latitude', 'Longitude'])
+
+# Convert ke GeoDataFrame
 geometry = [Point(xy) for xy in zip(dealer_df['Longitude'], dealer_df['Latitude'])]
 dealer_gdf = gpd.GeoDataFrame(dealer_df, geometry=geometry, crs='EPSG:4326')
 
 # --- SIDEBAR FILTER ---
 st.sidebar.title('Filter Dealer')
+channel_options = dealer_gdf['Channel'].unique()
+selected_channel = st.sidebar.selectbox('Pilih Channel:', ['Semua'] + list(channel_options))
 
-selected_channels = st.sidebar.multiselect('Pilih Channel:', dealer_gdf['Channel'].unique())
-filtered_area = dealer_gdf[dealer_gdf['Channel'].isin(selected_channels)]['Area'].unique()
-selected_areas = st.sidebar.multiselect('Pilih Area:', filtered_area)
+if selected_channel != 'Semua':
+    filtered_dealer_gdf = dealer_gdf[dealer_gdf['Channel'] == selected_channel]
+else:
+    filtered_dealer_gdf = dealer_gdf
 
-filtered_dealers = dealer_gdf[
-    (dealer_gdf['Channel'].isin(selected_channels)) &
-    (dealer_gdf['Area'].isin(selected_areas))
-]
+area_options = filtered_dealer_gdf['Area'].unique()
+selected_area = st.sidebar.selectbox('Pilih Area:', ['Semua'] + list(area_options))
 
-selected_dealers = st.sidebar.multiselect('Pilih Dealer:', filtered_dealers['Kode Dealer'].unique())
+if selected_area != 'Semua':
+    filtered_dealer_gdf = filtered_dealer_gdf[filtered_dealer_gdf['Area'] == selected_area]
+
+dealer_options = filtered_dealer_gdf['Kode Dealer'].unique()
+selected_dealers = st.sidebar.multiselect('Pilih Dealer:', dealer_options)
 
 # --- PLOTTING MAP ---
-if not filtered_dealers.empty:
-    first_point = filtered_dealers.iloc[0]
-    m = folium.Map(location=[first_point['Latitude'], first_point['Longitude']], zoom_start=9)
+if len(filtered_dealer_gdf) > 0:
+    m = folium.Map(location=[filtered_dealer_gdf.iloc[0]['Latitude'], filtered_dealer_gdf.iloc[0]['Longitude']], zoom_start=8)
 
-    # Tambahkan batas kecamatan
+    # Batas Kecamatan
     style_normal = {'fillColor': '#ffffff00', 'color': 'black', 'weight': 1}
     style_highlight = {'fillColor': '#ffff00', 'color': 'red', 'weight': 2}
 
@@ -70,15 +78,15 @@ if not filtered_dealers.empty:
         collapsed=False
     ).add_to(m)
 
-    # Tampilkan semua titik sesuai filter
-    for idx, row in filtered_dealers.iterrows():
+    # Tampilkan semua dealer yang sesuai filter
+    for idx, row in filtered_dealer_gdf.iterrows():
         folium.Marker(
             location=[row['Latitude'], row['Longitude']],
-            popup=f"{row['Kode Dealer']} - {row['Channel']} - {row['Area']}",
+            popup=f"{row['Kode Dealer']} - {row.get('Nama Dealer', '')}",
             icon=folium.Icon(color='blue', icon='info-sign')
         ).add_to(m)
 
-    # Kalau dealer dipilih, tampilkan ring 1, 2, 3
+    # Kalau dealer sudah dipilih, tampilkan ring
     if selected_dealers:
         for dealer_code in selected_dealers:
             dealer_selected = dealer_gdf[dealer_gdf['Kode Dealer'] == dealer_code].iloc[0]
@@ -115,5 +123,6 @@ if not filtered_dealers.empty:
 
     folium.LayerControl().add_to(m)
     st_folium(m, width=800, height=600)
+
 else:
-    st.write("Silakan pilih minimal satu channel dan area untuk menampilkan data.")
+    st.write("Data dealer tidak ditemukan untuk filter yang dipilih.")
