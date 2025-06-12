@@ -10,7 +10,7 @@ from shapely.geometry import Point
 @st.cache_data
 def load_geojson(url):
     gdf = gpd.read_file(url)
-    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.001, preserve_topology=True)
+    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.05, preserve_topology=True)
     return gdf
 
 @st.cache_data
