@@ -6,15 +6,26 @@ from folium.plugins import Search
 from streamlit_folium import st_folium
 from shapely.geometry import Point
 
-# --- LOAD DATA ---
+# --- LOAD DATA DENGAN CACHE ---
+
+@st.cache_data
+def load_geojson(url):
+    gdf = gpd.read_file(url)
+    # Simplify polygon supaya lebih ringan
+    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.001, preserve_topology=True)
+    return gdf
+
+@st.cache_data
+def load_excel(url):
+    return pd.read_excel(url)
 
 # Google Drive direct download links
 geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
 excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=xlsx'
 
-# Load GeoJSON dan Excel
-jabar_map = gpd.read_file(geojson_url)
-dealer_df = pd.read_excel(excel_url)
+# Load data
+jabar_map = load_geojson(geojson_url)
+dealer_df = load_excel(excel_url)
 
 # Convert dealer dataframe jadi GeoDataFrame
 geometry = [Point(xy) for xy in zip(dealer_df['Longitude'], dealer_df['Latitude'])]
@@ -28,7 +39,7 @@ selected_dealers = st.sidebar.multiselect('Pilih Dealer:', dealer_options)
 # --- PLOTTING MAP ---
 if selected_dealers:
     first_dealer = dealer_gdf[dealer_gdf['Kode Dealer'] == selected_dealers[0]].iloc[0]
-    m = folium.Map(location=[first_dealer['Latitude'], first_dealer['Longitude']], zoom_start=10)
+    m = folium.Map(location=[first_dealer['Latitude'], first_dealer['Longitude']], zoom_start=9)
 
     # Tambahkan batas kecamatan
     style_normal = {'fillColor': '#ffffff00', 'color': 'black', 'weight': 1}
