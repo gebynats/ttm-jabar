@@ -11,35 +11,43 @@ from shapely.geometry import Point
 @st.cache_data
 def load_geojson(url):
     gdf = gpd.read_file(url)
-    # Simplify polygon supaya lebih ringan
-    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.05, preserve_topology=True)
+    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.001, preserve_topology=True)
     return gdf
 
 @st.cache_data
 def load_excel(url):
     return pd.read_excel(url)
 
-# Google Drive direct download links
+# --- LINK DATA ---
 geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
-excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=xlsx'
+excel_url = 'https://docs.google.com/spreadsheets/d/19jQ2KXMKVUbz2hSrwzd0f-7PUeE3T7Yd/edit?usp=sharing&ouid=103666483052468840911&rtpof=true&sd=true'
 
-# Load data
+# --- LOAD DATA ---
 jabar_map = load_geojson(geojson_url)
 dealer_df = load_excel(excel_url)
 
-# Convert dealer dataframe jadi GeoDataFrame
+# --- CONVERT GEODATAFRAME ---
 geometry = [Point(xy) for xy in zip(dealer_df['Longitude'], dealer_df['Latitude'])]
 dealer_gdf = gpd.GeoDataFrame(dealer_df, geometry=geometry, crs='EPSG:4326')
 
 # --- SIDEBAR FILTER ---
 st.sidebar.title('Filter Dealer')
-dealer_options = dealer_gdf['Kode Dealer'].unique()
-selected_dealers = st.sidebar.multiselect('Pilih Dealer:', dealer_options)
+
+selected_channels = st.sidebar.multiselect('Pilih Channel:', dealer_gdf['Channel'].unique())
+filtered_area = dealer_gdf[dealer_gdf['Channel'].isin(selected_channels)]['Area'].unique()
+selected_areas = st.sidebar.multiselect('Pilih Area:', filtered_area)
+
+filtered_dealers = dealer_gdf[
+    (dealer_gdf['Channel'].isin(selected_channels)) &
+    (dealer_gdf['Area'].isin(selected_areas))
+]
+
+selected_dealers = st.sidebar.multiselect('Pilih Dealer:', filtered_dealers['Kode Dealer'].unique())
 
 # --- PLOTTING MAP ---
-if selected_dealers:
-    first_dealer = dealer_gdf[dealer_gdf['Kode Dealer'] == selected_dealers[0]].iloc[0]
-    m = folium.Map(location=[first_dealer['Latitude'], first_dealer['Longitude']], zoom_start=9)
+if not filtered_dealers.empty:
+    first_point = filtered_dealers.iloc[0]
+    m = folium.Map(location=[first_point['Latitude'], first_point['Longitude']], zoom_start=9)
 
     # Tambahkan batas kecamatan
     style_normal = {'fillColor': '#ffffff00', 'color': 'black', 'weight': 1}
@@ -61,71 +69,50 @@ if selected_dealers:
         collapsed=False
     ).add_to(m)
 
-    # Plot tiap dealer yang dipilih
-    for dealer_code in selected_dealers:
-        dealer_selected = dealer_gdf[dealer_gdf['Kode Dealer'] == dealer_code].iloc[0]
-
-        # Tambahkan Ring 3
-        folium.Circle(
-            location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
-            radius=15000,
-            color='red',
-            fill=True,
-            fill_opacity=0.1,
-            popup='Ring 3 (<15km)'
-        ).add_to(m)
-
-        # Tambahkan Ring 2
-        folium.Circle(
-            location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
-            radius=10000,
-            color='orange',
-            fill=True,
-            fill_opacity=0.2,
-            popup='Ring 2 (<10km)'
-        ).add_to(m)
-
-        # Tambahkan Ring 1
-        folium.Circle(
-            location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
-            radius=5000,
-            color='green',
-            fill=True,
-            fill_opacity=0.3,
-            popup='Ring 1 (<5km)'
-        ).add_to(m)
-
-        # Tambahkan marker dealer
+    # Tampilkan semua titik sesuai filter
+    for idx, row in filtered_dealers.iterrows():
         folium.Marker(
-            location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
-            popup=f"Dealer: {dealer_selected['Kode Dealer']}",
+            location=[row['Latitude'], row['Longitude']],
+            popup=f"{row['Kode Dealer']} - {row['Channel']} - {row['Area']}",
             icon=folium.Icon(color='blue', icon='info-sign')
         ).add_to(m)
 
-        # Hitung jarak dealer lain
-        distances = []
-        for idx, row in dealer_gdf.iterrows():
-            if row['Kode Dealer'] != dealer_code:
-                distance = dealer_selected.geometry.distance(row.geometry) * 111000  # Konversi degree ke meter
-                distances.append({'Kode Dealer': row['Kode Dealer'], 'Jarak (m)': distance})
+    # Kalau dealer dipilih, tampilkan ring 1, 2, 3
+    if selected_dealers:
+        for dealer_code in selected_dealers:
+            dealer_selected = dealer_gdf[dealer_gdf['Kode Dealer'] == dealer_code].iloc[0]
 
-        distance_df = pd.DataFrame(distances)
+            # Tambahkan Ring 3
+            folium.Circle(
+                location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
+                radius=15000,
+                color='red',
+                fill=True,
+                fill_opacity=0.1,
+                popup='Ring 3 (<15km)'
+            ).add_to(m)
 
-        # Filter dealer dalam Ring 1 dan Ring 2
-        ring1 = distance_df[distance_df['Jarak (m)'] <= 5000].sort_values('Jarak (m)')
-        ring2 = distance_df[(distance_df['Jarak (m)'] > 5000) & (distance_df['Jarak (m)'] <= 10000)].sort_values('Jarak (m)')
+            # Tambahkan Ring 2
+            folium.Circle(
+                location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
+                radius=10000,
+                color='orange',
+                fill=True,
+                fill_opacity=0.2,
+                popup='Ring 2 (<10km)'
+            ).add_to(m)
 
-        st.write(f'**Dealer: {dealer_code}**')
-
-        st.write('Dealer dalam Ring 1 (<5km):')
-        st.dataframe(ring1[['Kode Dealer', 'Jarak (m)']])
-
-        st.write('Dealer dalam Ring 2 (<10km):')
-        st.dataframe(ring2[['Kode Dealer', 'Jarak (m)']])
+            # Tambahkan Ring 1
+            folium.Circle(
+                location=[dealer_selected['Latitude'], dealer_selected['Longitude']],
+                radius=5000,
+                color='green',
+                fill=True,
+                fill_opacity=0.3,
+                popup='Ring 1 (<5km)'
+            ).add_to(m)
 
     folium.LayerControl().add_to(m)
-
     st_folium(m, width=800, height=600)
-
 else:
-    st.write("Silakan pilih minimal satu dealer di sidebar.")
+    st.write("Silakan pilih minimal satu channel dan area untuk menampilkan data.")
