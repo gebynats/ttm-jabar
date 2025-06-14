@@ -1,42 +1,38 @@
 import streamlit as st
-import folium
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point
+import folium
 from streamlit_folium import st_folium
 
-# Load data dealer
-dealer_df = pd.read_excel('/content/drive/MyDrive/Koordinat Dealer dan POS JABAR.xlsx')
+# --- LOAD DATA ---
+geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
+excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=xlsx'
 
-# Load peta batas kecamatan
-jabar_map = gpd.read_file('/content/drive/MyDrive/JAWABARAT_ADM_KEC/JAWABARAT_ADM_KEC.shp')
-jabar_map = jabar_map.to_crs(epsg=4326)
+# Load dealer data
+dealer_df = pd.read_excel(excel_url)
 
-# Buat GeoDataFrame dealer
-geometry = [Point(xy) for xy in zip(dealer_df['LONGITUDE'], dealer_df['LATITUDE'])]
-dealer_gdf = gpd.GeoDataFrame(dealer_df, geometry=geometry, crs='EPSG:4326')
+# Load geojson map
+jabar_map = gpd.read_file(geojson_url)
 
-# Streamlit UI
-st.title('Peta Dealer dan POS Jawa Barat')
+# --- STREAMLIT APP ---
+st.title("Dealer dan POS Jabar Map")
 
 # Dropdown Kabupaten
-kabupaten_options = dealer_gdf['AREA'].unique()
-selected_kabupaten = st.selectbox('Pilih Kabupaten:', kabupaten_options)
+kabupaten_options = dealer_df['AREA'].unique()
+selected_kabupaten = st.selectbox('Pilih Kabupaten', kabupaten_options)
 
 # Dropdown Dealer
-filtered_dealers = dealer_gdf[dealer_gdf['AREA'] == selected_kabupaten]['KODE'].unique()
-if len(filtered_dealers) == 0:
-    st.warning('Tidak ada dealer di kabupaten ini')
-    st.stop()
+filtered_dealers = dealer_df[dealer_df['AREA'] == selected_kabupaten]['KODE'].unique()
+selected_dealer = st.selectbox('Pilih Dealer / POS', filtered_dealers)
 
-selected_dealer = st.selectbox('Pilih Kode Dealer:', filtered_dealers)
+# Convert dealer data to GeoDataFrame
+dealer_gdf = gpd.GeoDataFrame(dealer_df, geometry=gpd.points_from_xy(dealer_df['LONGITUDE'], dealer_df['LATITUDE']), crs='EPSG:4326')
 
-# Tombol
-if st.button('Tampilkan Peta'):
-    # Plot Folium
+# Function to plot folium map
+def plot_folium(selected_kabupaten, selected_dealer):
     m = folium.Map(location=[-6.9, 107.6], zoom_start=10)
 
-    # Plot semua dealer dan pos di kabupaten tersebut
+    # Plot all dealers in selected kabupaten
     dealers_in_kabupaten = dealer_gdf[dealer_gdf['AREA'] == selected_kabupaten]
 
     for idx, dealer in dealers_in_kabupaten.iterrows():
@@ -48,7 +44,7 @@ if st.button('Tampilkan Peta'):
             icon=folium.Icon(color=marker_color, icon='car')
         ).add_to(m)
 
-    # Plot ring untuk dealer yang dipilih
+    # Plot ring for selected dealer
     selected_dealer_data = dealer_gdf[dealer_gdf['KODE'] == selected_dealer]
 
     if not selected_dealer_data.empty:
@@ -84,7 +80,7 @@ if st.button('Tampilkan Peta'):
             popup='Ring 1 (<5km)'
         ).add_to(m)
 
-        # Dealer marker khusus
+        # Highlight selected dealer
         label_prefix = "Dealer" if dealer_selected['CHANNEL'] == 'DEALER' else "Pos"
         marker_color = "red" if dealer_selected['CHANNEL'] == 'DEALER' else "blue"
         folium.Marker(
@@ -93,9 +89,9 @@ if st.button('Tampilkan Peta'):
             icon=folium.Icon(color=marker_color, icon='info-sign')
         ).add_to(m)
 
-    # Tambahkan batas kecamatan + tooltip
+    # Add GeoJSON layer (batas kecamatan)
     folium.GeoJson(
-        jabar_map.__geo_interface__,
+        jabar_map,
         name='Batas Kecamatan',
         style_function=lambda x: {
             'color': 'black',
@@ -105,18 +101,14 @@ if st.button('Tampilkan Peta'):
         tooltip=folium.GeoJsonTooltip(
             fields=['WADMKK', 'WADMKC'],
             aliases=['Kabupaten:', 'Kecamatan:'],
-            sticky=False,
-            style=(
-                "background-color: white; "
-                "color: black; "
-                "font-family: Arial; "
-                "font-size: 12px; "
-                "padding: 5px;"
-            )
+            sticky=False
         )
     ).add_to(m)
 
     folium.LayerControl().add_to(m)
+    return m
 
-    # Tampilkan di Streamlit
-    st_folium(m, width=900, height=600)
+# Tampilkan peta
+st.write('Peta Dealer dan POS')
+map_folium = plot_folium(selected_kabupaten, selected_dealer)
+st_folium(map_folium, width=800, height=600)
