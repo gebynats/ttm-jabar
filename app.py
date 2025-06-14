@@ -1,146 +1,122 @@
 import streamlit as st
+import folium
 import pandas as pd
 import geopandas as gpd
-import folium
-from folium.plugins import Search
-from streamlit_folium import st_folium
 from shapely.geometry import Point
+from streamlit_folium import st_folium
 
-# --- LOAD DATA DENGAN CACHE ---
-@st.cache_data(show_spinner=True)
-def load_geojson(url):
-    gdf = gpd.read_file(url)
-    gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.01, preserve_topology=True)
-    return gdf
+# Load data dealer
+dealer_df = pd.read_excel('/content/drive/MyDrive/Koordinat Dealer dan POS JABAR.xlsx')
 
-@st.cache_data
-def load_excel(url):
-    return pd.read_excel(url)
+# Load peta batas kecamatan
+jabar_map = gpd.read_file('/content/drive/MyDrive/JAWABARAT_ADM_KEC/JAWABARAT_ADM_KEC.shp')
+jabar_map = jabar_map.to_crs(epsg=4326)
 
-# --- URL DATA ---
-geojson_url = 'https://drive.google.com/uc?id=1nMWyPZ1X5JY9nO4QSsT_N0b4i7wxzMTF'
-excel_url = 'https://docs.google.com/spreadsheets/d/1f7aLwp7-NfmdUKcsu1cmVE54ltzF8WdS/export?format=xlsx'
-
-# --- LOAD DATA ---
-jabar_map = load_geojson(geojson_url)
-dealer_df = load_excel(excel_url)
-
-# --- STANDARISASI KOLOM ---
-dealer_df.columns = dealer_df.columns.str.strip().str.upper()
-
-# Debug: tampilkan nama kolom
-st.write('Kolom setelah standardisasi:', dealer_df.columns)
-
-# Pastikan latitude dan longitude numerik
-dealer_df['LATITUDE'] = pd.to_numeric(dealer_df['LATITUDE'], errors='coerce')
-dealer_df['LONGITUDE'] = pd.to_numeric(dealer_df['LONGITUDE'], errors='coerce')
-
-# Konversi ke GeoDataFrame
+# Buat GeoDataFrame dealer
 geometry = [Point(xy) for xy in zip(dealer_df['LONGITUDE'], dealer_df['LATITUDE'])]
 dealer_gdf = gpd.GeoDataFrame(dealer_df, geometry=geometry, crs='EPSG:4326')
 
-# --- SIDEBAR FILTER ---
-st.sidebar.title('Filter Dealer')
+# Streamlit UI
+st.title('Peta Dealer dan POS Jawa Barat')
 
-# Buat filter Channel
-channel_options = dealer_gdf['CHANNEL'].dropna().unique()
-selected_channel = st.sidebar.selectbox('Pilih Channel:', ['Semua'] + list(channel_options))
+# Dropdown Kabupaten
+kabupaten_options = dealer_gdf['AREA'].unique()
+selected_kabupaten = st.selectbox('Pilih Kabupaten:', kabupaten_options)
 
-# Buat filter Area berdasarkan channel
-if selected_channel != 'Semua':
-    filtered_area = dealer_gdf[dealer_gdf['CHANNEL'] == selected_channel]
-else:
-    filtered_area = dealer_gdf
+# Dropdown Dealer
+filtered_dealers = dealer_gdf[dealer_gdf['AREA'] == selected_kabupaten]['KODE'].unique()
+if len(filtered_dealers) == 0:
+    st.warning('Tidak ada dealer di kabupaten ini')
+    st.stop()
 
-area_options = filtered_area['AREA'].dropna().unique()
-selected_area = st.sidebar.selectbox('Pilih Area:', ['Semua'] + list(area_options))
+selected_dealer = st.selectbox('Pilih Kode Dealer:', filtered_dealers)
 
-# Buat filter Dealer berdasarkan Area
-if selected_area != 'Semua':
-    filtered_dealers = filtered_area[filtered_area['AREA'] == selected_area]
-else:
-    filtered_dealers = filtered_area
+# Tombol
+if st.button('Tampilkan Peta'):
+    # Plot Folium
+    m = folium.Map(location=[-6.9, 107.6], zoom_start=10)
 
-dealer_options = filtered_dealers['KODE'].unique()
-selected_dealers = st.sidebar.multiselect('Pilih Dealer:', dealer_options)
+    # Plot semua dealer dan pos di kabupaten tersebut
+    dealers_in_kabupaten = dealer_gdf[dealer_gdf['AREA'] == selected_kabupaten]
 
-# --- PLOTTING MAP ---
-if selected_channel != 'Semua' and selected_area != 'Semua':
-    m = folium.Map(location=[filtered_dealers['LATITUDE'].mean(), filtered_dealers['LONGITUDE'].mean()], zoom_start=9)
-
-    # Tambahkan batas kecamatan
-    style_normal = {'fillColor': '#ffffff00', 'color': 'black', 'weight': 1}
-    style_highlight = {'fillColor': '#ffff00', 'color': 'red', 'weight': 2}
-
-    geojson = folium.GeoJson(
-        jabar_map,
-        name='Batas Kecamatan',
-        style_function=lambda x: style_normal,
-        highlight_function=lambda x: style_highlight,
-        tooltip=folium.GeoJsonTooltip(fields=['WADMKC'], aliases=['Kecamatan:'])
-    ).add_to(m)
-
-    Search(
-        layer=geojson,
-        geom_type='Polygon',
-        placeholder='Cari Kecamatan...',
-        search_label='WADMKC',
-        collapsed=False
-    ).add_to(m)
-
-    # Tampilkan semua dealer
-    for idx, row in filtered_dealers.iterrows():
+    for idx, dealer in dealers_in_kabupaten.iterrows():
+        label_prefix = "Dealer" if dealer['CHANNEL'] == 'DEALER' else "Pos"
+        marker_color = "red" if dealer['CHANNEL'] == 'DEALER' else "blue"
         folium.Marker(
-            location=[row['LATITUDE'], row['LONGITUDE']],
-            popup=f"{row['KODE']}",
-            icon=folium.Icon(color='gray', icon='info-sign')
+            location=[dealer['LATITUDE'], dealer['LONGITUDE']],
+            popup=f"{label_prefix}: {dealer['KODE']}<br>{dealer['NAMA CHANNEL']}",
+            icon=folium.Icon(color=marker_color, icon='car')
         ).add_to(m)
 
-    # Kalau dealer dipilih, tampilkan ring
-    if selected_dealers:
-        for dealer_code in selected_dealers:
-            dealer_selected = dealer_gdf[dealer_gdf['KODE'] == dealer_code].iloc[0]
+    # Plot ring untuk dealer yang dipilih
+    selected_dealer_data = dealer_gdf[dealer_gdf['KODE'] == selected_dealer]
 
-            # Tambahkan Ring 3
-            folium.Circle(
-                location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
-                radius=15000,
-                color='red',
-                fill=True,
-                fill_opacity=0.1,
-                popup='Ring 3 (<15km)'
-            ).add_to(m)
+    if not selected_dealer_data.empty:
+        dealer_selected = selected_dealer_data.iloc[0]
 
-            # Tambahkan Ring 2
-            folium.Circle(
-                location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
-                radius=10000,
-                color='orange',
-                fill=True,
-                fill_opacity=0.2,
-                popup='Ring 2 (<10km)'
-            ).add_to(m)
+        # Ring 3
+        folium.Circle(
+            location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
+            radius=15000,
+            color='red',
+            fill=True,
+            fill_opacity=0.1,
+            popup='Ring 3 (<15km)'
+        ).add_to(m)
 
-            # Tambahkan Ring 1
-            folium.Circle(
-                location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
-                radius=5000,
-                color='green',
-                fill=True,
-                fill_opacity=0.3,
-                popup='Ring 1 (<5km)'
-            ).add_to(m)
+        # Ring 2
+        folium.Circle(
+            location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
+            radius=10000,
+            color='orange',
+            fill=True,
+            fill_opacity=0.2,
+            popup='Ring 2 (<10km)'
+        ).add_to(m)
 
-            # Tambahkan marker dealer terpilih
-            folium.Marker(
-                location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
-                popup=f"Dealer: {dealer_selected['KODE']}",
-                icon=folium.Icon(color='blue', icon='info-sign')
-            ).add_to(m)
+        # Ring 1
+        folium.Circle(
+            location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
+            radius=5000,
+            color='green',
+            fill=True,
+            fill_opacity=0.3,
+            popup='Ring 1 (<5km)'
+        ).add_to(m)
+
+        # Dealer marker khusus
+        label_prefix = "Dealer" if dealer_selected['CHANNEL'] == 'DEALER' else "Pos"
+        marker_color = "red" if dealer_selected['CHANNEL'] == 'DEALER' else "blue"
+        folium.Marker(
+            location=[dealer_selected['LATITUDE'], dealer_selected['LONGITUDE']],
+            popup=f"{label_prefix}: {dealer_selected['KODE']}<br>{dealer_selected['NAMA CHANNEL']}",
+            icon=folium.Icon(color=marker_color, icon='info-sign')
+        ).add_to(m)
+
+    # Tambahkan batas kecamatan + tooltip
+    folium.GeoJson(
+        jabar_map.__geo_interface__,
+        name='Batas Kecamatan',
+        style_function=lambda x: {
+            'color': 'black',
+            'weight': 1,
+            'fillOpacity': 0
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=['WADMKK', 'WADMKC'],
+            aliases=['Kabupaten:', 'Kecamatan:'],
+            sticky=False,
+            style=(
+                "background-color: white; "
+                "color: black; "
+                "font-family: Arial; "
+                "font-size: 12px; "
+                "padding: 5px;"
+            )
+        )
+    ).add_to(m)
 
     folium.LayerControl().add_to(m)
 
-    st_folium(m, width=800, height=600)
-
-else:
-    st.write("Silakan pilih Channel dan Area terlebih dahulu.")
+    # Tampilkan di Streamlit
+    st_folium(m, width=900, height=600)
